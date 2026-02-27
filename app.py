@@ -7,9 +7,9 @@ from datetime import datetime, date
 
 # ----------------- CONFIG -----------------
 APP_NAME = "Etsy SEO Helper"
-FREE_DAILY_LIMIT = 3                 # free generations per day
-USAGE_FILE = "usage.json"            # local usage store
-PRO_USERS_FILE = "pro_users.json"    # list of pro emails (lowercase)
+FREE_DAILY_LIMIT = 3
+USAGE_FILE = "usage.json"
+PRO_USERS_FILE = "pro_users.json"
 
 st.set_page_config(page_title=APP_NAME, page_icon="🧠", layout="centered")
 
@@ -37,19 +37,16 @@ def split_list(raw: str, max_items: int = 12):
         t = clean_text(x)
         if t:
             items.append(t)
-
-    # dedupe case-insensitive
     out = []
     seen = set()
     for i in items:
-        key = i.lower()
-        if key not in seen:
+        k = i.lower()
+        if k not in seen:
             out.append(i)
-            seen.add(key)
-
+            seen.add(k)
     return out[:max_items]
 
-# ----------------- USAGE STORE -----------------
+# ----------------- JSON STORE -----------------
 def load_json_file(path: str, default):
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -64,16 +61,23 @@ def save_json_file(path: str, obj):
     except Exception:
         pass
 
+# ----------------- USAGE -----------------
 def get_user_id(email: str) -> str:
     email = clean_text(email).lower()
     return sha256_short(email)
 
 def get_usage_today(user_id: str) -> int:
     usage = load_json_file(USAGE_FILE, {})
+    if not isinstance(usage, dict):
+        # self-heal if corrupted
+        usage = {}
+        save_json_file(USAGE_FILE, usage)
     return int(usage.get(user_id, {}).get(today_key(), 0))
 
 def inc_usage_today(user_id: str):
     usage = load_json_file(USAGE_FILE, {})
+    if not isinstance(usage, dict):
+        usage = {}
     usage.setdefault(user_id, {})
     usage[user_id].setdefault(today_key(), 0)
     usage[user_id][today_key()] += 1
@@ -82,7 +86,7 @@ def inc_usage_today(user_id: str):
 # ----------------- PRO USERS (BY EMAIL) -----------------
 def load_pro_users() -> set:
     """
-    pro_users.json should be a JSON list of emails, e.g.:
+    pro_users.json should be a JSON list of emails:
     ["buyer@email.com", "another@domain.com"]
     """
     data = load_json_file(PRO_USERS_FILE, [])
@@ -94,33 +98,27 @@ def is_pro_user(email: str) -> bool:
     email = clean_text(email).lower()
     if not email:
         return False
-    pro_users = load_pro_users()
-    return email in pro_users
+    return email in load_pro_users()
 
 # ----------------- SEO GENERATION (TEMPLATES) -----------------
 def extract_keywords(product, niche, style, occasion, file_type, features, audience):
     seed = " ".join([product, niche, style, occasion, file_type, audience] + features)
     words = re.findall(r"[a-z0-9]+", seed.lower())
-
     stop = set("""
         the a an and or for with to in of on at by from is are this that
         best premium high quality durable easy new
         digital instant download printable template templates
     """.split())
-
     uniq = []
     for w in words:
         if len(w) < 3 or w in stop:
             continue
         if w not in uniq:
             uniq.append(w)
-
     return uniq[:60]
 
 def build_titles(product, primary_kw, niche, occasion, style, file_type, size, keywords):
-    # Etsy title max: 140 chars
     kw = clean_text(primary_kw or (keywords[0] if keywords else product))
-
     patterns = [
         "{kw} | {product} | {niche} | {occasion}",
         "{kw} {product} - {style} {file_type} ({size})",
@@ -133,7 +131,6 @@ def build_titles(product, primary_kw, niche, occasion, style, file_type, size, k
         "{product} | {kw} | {style} | Instant Download",
         "{kw} {product} | {niche} | {occasion} | {size}",
     ]
-
     variants = []
     for p in patterns:
         title = p.format(
@@ -149,11 +146,9 @@ def build_titles(product, primary_kw, niche, occasion, style, file_type, size, k
         title = title[:140]
         if title and title.lower() not in [v.lower() for v in variants]:
             variants.append(title)
-
     return variants[:10]
 
 def build_tags(keywords):
-    # Etsy: 13 tags; each <= 20 chars (common best practice)
     tags = []
     for k in keywords:
         if len(tags) >= 13:
@@ -347,7 +342,6 @@ with tabs[0]:
         st.subheader("🔎 Keyword ideas")
         st.write(", ".join(keywords[:25]))
 
-        # Export
         out = {
             "email": email_clean,
             "plan": "pro" if pro else "free",
@@ -408,10 +402,10 @@ with tabs[2]:
 - Priority improvements  
 - Bulk mode (coming soon)
 
-**How Pro works right now (no card needed in the app):**  
+**How Pro works right now:**  
 1) Buy Pro on Gumroad  
 2) Use the same purchase email in the app  
-3) We add your email to Pro list (instant after update)
+3) We activate Pro by adding your email to the Pro list
 """)
 
 # -------- FAQ Tab --------
