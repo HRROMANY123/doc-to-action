@@ -12,11 +12,40 @@ import streamlit.components.v1 as components
 # =========================
 APP_TITLE = "Etsy SEO Helper (Templates Pro)"
 PRO_USERS_FILE = "pro_users.json"
-USAGE_FILE = "usage_log.json"       # tracks free users daily usage by email
-FREE_DAILY_LIMIT = 5               # free generations per day per email
+USAGE_FILE = "usage_log.json"        # tracks free users daily usage by email
+FREE_DAILY_LIMIT = 5                # free generations per day per email
 
 MAX_TITLE_LEN = 140
 ETSY_TAG_MAX_LEN = 20
+
+# =========================
+# ONBOARDING / PRICING
+# =========================
+EXAMPLE_INPUT = {
+    "product": "Minimalist Necklace",
+    "material": "925 sterling silver",
+    "style": "minimalist",
+    "color": "gold",
+    "audience": "her",
+    "occasion": "birthday",
+    "personalization": "Add initial letter",
+    "keywords": "dainty necklace, initial charm, gift for her",
+    "benefit": "Elegant everyday style + gift-ready packaging",
+    "season": "Spring",
+    "features": "Handmade with care\nGift-ready packaging\nTimeless minimalist look",
+    "materials_desc": "Sterling silver, hypoallergenic",
+    "sizing": "16-18 inch chain, adjustable",
+    "shipping": "Processing 1-2 days, tracked shipping available"
+}
+
+def apply_example():
+    for k, v in EXAMPLE_INPUT.items():
+        st.session_state[k] = v
+
+def reset_inputs():
+    for k in list(EXAMPLE_INPUT.keys()):
+        if k in st.session_state:
+            del st.session_state[k]
 
 # =========================
 # UTIL: JSON helpers
@@ -35,7 +64,6 @@ def _write_json(path: str, data):
 
 def load_pro_users():
     data = _read_json(PRO_USERS_FILE, default={})
-    # supports {"emails": ["a@b.com"]} OR {"a@b.com": true}
     if isinstance(data, dict) and "emails" in data and isinstance(data["emails"], list):
         return set([e.strip().lower() for e in data["emails"] if isinstance(e, str)])
     if isinstance(data, dict):
@@ -195,13 +223,10 @@ def smart_trim_tag(tag: str, max_len: int = ETSY_TAG_MAX_LEN) -> str:
         return t
 
     words = [w for w in t.split(" ") if w]
-
-    # remove stopwords first
     words2 = [w for w in words if w not in STOPWORDS]
     if words2:
         words = words2
 
-    # remove words from end until fits
     while words and len(" ".join(words)) > max_len:
         words.pop()
 
@@ -209,7 +234,6 @@ def smart_trim_tag(tag: str, max_len: int = ETSY_TAG_MAX_LEN) -> str:
     if t2 and len(t2) <= max_len:
         return t2
 
-    # fallback: hard cut
     return t[:max_len].strip()
 
 def guard_tags(tags: list, max_len: int = ETSY_TAG_MAX_LEN) -> list:
@@ -278,7 +302,7 @@ def make_seasonality_tags(season: str):
     return out[:13]
 
 # -------------------------
-# Strong first 2 lines
+# Strong first 2 lines + Description
 # -------------------------
 def strong_first_two_lines(product: str, main_kws: list, benefit: str, audience: str, occasion: str, personalization: str, season: str):
     product = clean_kw(product)
@@ -419,7 +443,7 @@ def rank_titles(titles: list, product: str, main_kws: list, audience: str, occas
 # =========================
 st.set_page_config(page_title=APP_TITLE, layout="centered")
 st.title(APP_TITLE)
-st.caption("Templates-only (No AI): Title scoring + Etsy tag guard + Copy/Download exports.")
+st.caption("Sell-ready: onboarding example + generator + pricing/upgrade tab.")
 
 pro_users = load_pro_users()
 
@@ -441,280 +465,313 @@ with st.sidebar:
         st.write(f"Free limit: **{FREE_DAILY_LIMIT} generations/day** per email.")
         st.write("Upgrade to Pro (by email) after payment — manual activation.")
 
+# Require email
 if not email or not is_valid_email(email):
     st.warning("Enter a valid email in the sidebar to use the generator.")
     st.stop()
 
+# Usage gating
 usage = load_usage()
 used = get_free_used(usage, email)
-
 if (not pro_active) and used >= FREE_DAILY_LIMIT:
     st.error("Free limit reached for today. Upgrade to Pro (by email) for unlimited generations.")
     st.stop()
 
-# Inputs
-st.subheader("Listing inputs")
-col1, col2 = st.columns(2)
-with col1:
-    product = st.text_input("Product type", placeholder="e.g., Minimalist Necklace, Printable Wall Art, Leather Wallet")
-    material = st.text_input("Material", placeholder="e.g., 925 sterling silver, oak wood, leather")
-    style = st.text_input("Style", placeholder="e.g., minimalist, boho, modern, vintage")
-    color = st.text_input("Color (optional)", placeholder="e.g., gold, black, pastel")
-with col2:
-    audience = st.text_input("Target audience", placeholder="e.g., her, him, mom, dad, kids, couples")
-    occasion = st.text_input("Occasion", placeholder="e.g., birthday, wedding, anniversary, housewarming")
-    personalization = st.text_input("Personalization (optional)", placeholder="e.g., add name, custom text, choose size")
+# Tabs
+tab_gen, tab_upgrade = st.tabs(["🚀 Generator", "💎 Upgrade / Pricing"])
 
-keywords = st.text_input("Main keywords (comma-separated)", placeholder="e.g., dainty necklace, initial charm, gift for her")
-benefit = st.text_input("Main benefit (for first line)", placeholder="e.g., Elegant look + perfect everyday wear")
-season = st.selectbox("Seasonality", options=list(SEASONAL_PACKS.keys()), index=0)
+# =========================
+# TAB: Generator (Onboarding + Form + Output)
+# =========================
+with tab_gen:
+    st.subheader("Listing inputs")
 
-st.markdown("---")
-st.subheader("Description details (optional)")
-features = st.text_area("Key features (one per line)", placeholder="• Handmade\n• High quality finish\n• Gift-ready packaging", height=120)
-materials_desc = st.text_input("Materials text", placeholder="e.g., Sterling silver, hypoallergenic")
-sizing = st.text_input("Sizing / Details", placeholder="e.g., 16-18 inches chain, A4 size, 300 DPI")
-shipping = st.text_input("Shipping policy snippet", placeholder="e.g., Processing 1-2 days, tracked shipping available")
+    b1, b2 = st.columns(2)
+    with b1:
+        if st.button("✨ Load Example (Onboarding)", use_container_width=True):
+            apply_example()
+            st.rerun()
+    with b2:
+        if st.button("🔄 Reset Inputs", use_container_width=True):
+            reset_inputs()
+            st.rerun()
 
-gen = st.button("🚀 Generate SEO Pack", use_container_width=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        product = st.text_input("Product type", key="product", placeholder="e.g., Minimalist Necklace, Printable Wall Art, Leather Wallet")
+        material = st.text_input("Material", key="material", placeholder="e.g., 925 sterling silver, oak wood, leather")
+        style = st.text_input("Style", key="style", placeholder="e.g., minimalist, boho, modern, vintage")
+        color = st.text_input("Color (optional)", key="color", placeholder="e.g., gold, black, pastel")
+    with col2:
+        audience = st.text_input("Target audience", key="audience", placeholder="e.g., her, him, mom, dad, kids, couples")
+        occasion = st.text_input("Occasion", key="occasion", placeholder="e.g., birthday, wedding, anniversary, housewarming")
+        personalization = st.text_input("Personalization (optional)", key="personalization", placeholder="e.g., add name, custom text, choose size")
 
-if gen:
-    main_kws = split_keywords(keywords)
+    keywords = st.text_input("Main keywords (comma-separated)", key="keywords", placeholder="e.g., dainty necklace, initial charm, gift for her")
+    benefit = st.text_input("Main benefit (for first line)", key="benefit", placeholder="e.g., Elegant look + perfect everyday wear")
+    season = st.selectbox("Seasonality", options=list(SEASONAL_PACKS.keys()), key="season", index=0)
 
-    raw_titles = title_variations(
-        product=product,
-        main_kws=main_kws,
-        material=material,
-        style=style,
-        audience=audience,
-        occasion=occasion,
-        personalization=personalization,
-        color=color,
-        season=season
-    )
+    st.markdown("---")
+    st.subheader("Description details (optional)")
+    features = st.text_area("Key features (one per line)", key="features",
+                            placeholder="• Handmade\n• High quality finish\n• Gift-ready packaging", height=120)
+    materials_desc = st.text_input("Materials text", key="materials_desc", placeholder="e.g., Sterling silver, hypoallergenic")
+    sizing = st.text_input("Sizing / Details", key="sizing", placeholder="e.g., 16-18 inches chain, A4 size, 300 DPI")
+    shipping = st.text_input("Shipping policy snippet", key="shipping", placeholder="e.g., Processing 1-2 days, tracked shipping available")
 
-    ranked = rank_titles(raw_titles, product, main_kws, audience, occasion, season)
-    best_title = ranked[0]["title"] if ranked else ""
+    gen = st.button("🚀 Generate SEO Pack", use_container_width=True)
 
-    # tags -> guarded
-    long_tail_raw = make_long_tail_tags(product, main_kws, material, style, audience, occasion, season)
-    buyer_intent_raw = make_buyer_intent_tags(audience, occasion)
-    seasonal_raw = make_seasonality_tags(season)
+    if gen:
+        main_kws = split_keywords(keywords)
 
-    long_tail = guard_tags(long_tail_raw, ETSY_TAG_MAX_LEN)
-    buyer_intent = guard_tags(buyer_intent_raw, ETSY_TAG_MAX_LEN)
-    seasonal_tags = guard_tags(seasonal_raw, ETSY_TAG_MAX_LEN)
+        raw_titles = title_variations(
+            product=product,
+            main_kws=main_kws,
+            material=material,
+            style=style,
+            audience=audience,
+            occasion=occasion,
+            personalization=personalization,
+            color=color,
+            season=season
+        )
 
-    # best 13 tags mix
-    best_tags = []
-    for pack in [long_tail, buyer_intent, seasonal_tags]:
-        for t in pack:
-            if t and t not in best_tags:
-                best_tags.append(t)
-    best_tags = best_tags[:13]
+        ranked = rank_titles(raw_titles, product, main_kws, audience, occasion, season)
+        best_title = ranked[0]["title"] if ranked else ""
 
-    desc = full_description(
-        product=product,
-        main_kws=main_kws,
-        benefit=benefit,
-        features=features,
-        materials=materials_desc,
-        sizing=sizing,
-        shipping=shipping,
-        personalization=personalization,
-        audience=audience,
-        occasion=occasion,
-        season=season
-    )
+        # tags -> guarded
+        long_tail_raw = make_long_tail_tags(product, main_kws, material, style, audience, occasion, season)
+        buyer_intent_raw = make_buyer_intent_tags(audience, occasion)
+        seasonal_raw = make_seasonality_tags(season)
 
-    # increment usage for Free users only
-    if not pro_active:
-        inc_free_used(usage, email)
-        save_usage(usage)
-        used = get_free_used(usage, email)
+        long_tail = guard_tags(long_tail_raw, ETSY_TAG_MAX_LEN)
+        buyer_intent = guard_tags(buyer_intent_raw, ETSY_TAG_MAX_LEN)
+        seasonal_tags = guard_tags(seasonal_raw, ETSY_TAG_MAX_LEN)
 
-    # =========================
-    # COPY ALL
-    # =========================
-    st.success("✅ Generated (Pro-quality)")
+        best_tags = []
+        for pack in [long_tail, buyer_intent, seasonal_tags]:
+            for t in pack:
+                if t and t not in best_tags:
+                    best_tags.append(t)
+        best_tags = best_tags[:13]
 
-    st.subheader("✅ Quick Apply (Copy / Download)")
-    st.caption("Best Title + Best 13 Tags + Description")
+        desc = full_description(
+            product=product,
+            main_kws=main_kws,
+            benefit=benefit,
+            features=features,
+            materials=materials_desc,
+            sizing=sizing,
+            shipping=shipping,
+            personalization=personalization,
+            audience=audience,
+            occasion=occasion,
+            season=season
+        )
 
-    copy_payload = (
-        f"BEST TITLE:\n{best_title}\n\n"
-        f"BEST 13 TAGS (<=20 chars each):\n{', '.join(best_tags)}\n\n"
-        f"DESCRIPTION:\n{desc}"
-    )
+        # usage
+        if not pro_active:
+            inc_free_used(usage, email)
+            save_usage(usage)
+            used = get_free_used(usage, email)
 
-    cA1, cA2, cA3 = st.columns(3)
-    with cA1:
-        copy_button(best_title, key="copy_best_title", label="Copy Best Title")
-    with cA2:
-        copy_button(", ".join(best_tags), key="copy_best_tags", label="Copy Best 13 Tags")
-    with cA3:
-        copy_button(copy_payload, key="copy_all", label="Copy ALL ✅")
+        st.success("✅ Generated (Pro-quality)")
 
-    # =========================
-    # EXPORT: JSON / CSV / TXT
-    # =========================
-    export_data = {
-        "best_title": best_title,
-        "ranked_titles": ranked,  # title, score, reasons
-        "best_13_tags": best_tags,
-        "tags": {
-            "long_tail": long_tail,
-            "buyer_intent": buyer_intent,
-            "seasonality": seasonal_tags
-        },
-        "description": desc,
-        "meta": {
-            "product": product,
-            "material": material,
-            "style": style,
-            "color": color,
-            "audience": audience,
-            "occasion": occasion,
-            "personalization": personalization,
-            "keywords": main_kws,
-            "season": season,
-            "generated_on": date.today().isoformat()
+        # Quick apply (Copy)
+        st.subheader("✅ Quick Apply (Copy / Download)")
+        st.caption("Best Title + Best 13 Tags + Description")
+
+        copy_payload = (
+            f"BEST TITLE:\n{best_title}\n\n"
+            f"BEST 13 TAGS (<=20 chars each):\n{', '.join(best_tags)}\n\n"
+            f"DESCRIPTION:\n{desc}"
+        )
+
+        cA1, cA2, cA3 = st.columns(3)
+        with cA1:
+            copy_button(best_title, key="copy_best_title", label="Copy Best Title")
+        with cA2:
+            copy_button(", ".join(best_tags), key="copy_best_tags", label="Copy Best 13 Tags")
+        with cA3:
+            copy_button(copy_payload, key="copy_all", label="Copy ALL ✅")
+
+        # Export files
+        export_data = {
+            "best_title": best_title,
+            "ranked_titles": ranked,
+            "best_13_tags": best_tags,
+            "tags": {
+                "long_tail": long_tail,
+                "buyer_intent": buyer_intent,
+                "seasonality": seasonal_tags
+            },
+            "description": desc,
+            "meta": {
+                "product": product,
+                "material": material,
+                "style": style,
+                "color": color,
+                "audience": audience,
+                "occasion": occasion,
+                "personalization": personalization,
+                "keywords": main_kws,
+                "season": season,
+                "generated_on": date.today().isoformat()
+            }
         }
-    }
 
-    json_bytes = json.dumps(export_data, ensure_ascii=False, indent=2).encode("utf-8")
+        json_bytes = json.dumps(export_data, ensure_ascii=False, indent=2).encode("utf-8")
 
-    csv_buffer = io.StringIO()
-    writer = csv.writer(csv_buffer)
+        csv_buffer = io.StringIO()
+        writer = csv.writer(csv_buffer)
+        writer.writerow(["SECTION", "KEY", "VALUE"])
+        writer.writerow(["BEST", "Best Title", best_title])
+        writer.writerow(["BEST", "Best 13 Tags", ", ".join(best_tags)])
+        writer.writerow(["BEST", "Description", desc])
 
-    writer.writerow(["SECTION", "KEY", "VALUE"])
-    writer.writerow(["BEST", "Best Title", best_title])
-    writer.writerow(["BEST", "Best 13 Tags", ", ".join(best_tags)])
-    writer.writerow(["BEST", "Description", desc])
+        writer.writerow([])
+        writer.writerow(["RANKED_TITLES", "Title", "Score"])
+        for item in ranked:
+            writer.writerow(["RANKED_TITLES", item["title"], item["score"]])
 
-    writer.writerow([])
-    writer.writerow(["RANKED_TITLES", "Title", "Score"])
-    for item in ranked:
-        writer.writerow(["RANKED_TITLES", item["title"], item["score"]])
+        writer.writerow([])
+        writer.writerow(["TAGS_LONGTAIL", "Tag", ""])
+        for t in long_tail:
+            writer.writerow(["TAGS_LONGTAIL", t, ""])
 
-    writer.writerow([])
-    writer.writerow(["TAGS_LONGTAIL", "Tag", ""])
-    for t in long_tail:
-        writer.writerow(["TAGS_LONGTAIL", t, ""])
+        writer.writerow([])
+        writer.writerow(["TAGS_INTENT", "Tag", ""])
+        for t in buyer_intent:
+            writer.writerow(["TAGS_INTENT", t, ""])
 
-    writer.writerow([])
-    writer.writerow(["TAGS_INTENT", "Tag", ""])
-    for t in buyer_intent:
-        writer.writerow(["TAGS_INTENT", t, ""])
+        writer.writerow([])
+        writer.writerow(["TAGS_SEASONAL", "Tag", ""])
+        for t in seasonal_tags:
+            writer.writerow(["TAGS_SEASONAL", t, ""])
 
-    writer.writerow([])
-    writer.writerow(["TAGS_SEASONAL", "Tag", ""])
-    for t in seasonal_tags:
-        writer.writerow(["TAGS_SEASONAL", t, ""])
+        csv_bytes = csv_buffer.getvalue().encode("utf-8-sig")
+        txt_bytes = copy_payload.encode("utf-8")
 
-    csv_bytes = csv_buffer.getvalue().encode("utf-8-sig")  # Excel-friendly
-    txt_bytes = copy_payload.encode("utf-8")
+        d1, d2, d3 = st.columns(3)
+        with d1:
+            st.download_button("⬇️ Download JSON", data=json_bytes, file_name="etsy_seo_pack.json",
+                               mime="application/json", use_container_width=True)
+        with d2:
+            st.download_button("⬇️ Download CSV", data=csv_bytes, file_name="etsy_seo_pack.csv",
+                               mime="text/csv", use_container_width=True)
+        with d3:
+            st.download_button("⬇️ Download TXT", data=txt_bytes, file_name="etsy_seo_pack.txt",
+                               mime="text/plain", use_container_width=True)
 
-    d1, d2, d3 = st.columns(3)
-    with d1:
-        st.download_button(
-            label="⬇️ Download JSON",
-            data=json_bytes,
-            file_name="etsy_seo_pack.json",
-            mime="application/json",
-            use_container_width=True
-        )
-    with d2:
-        st.download_button(
-            label="⬇️ Download CSV",
-            data=csv_bytes,
-            file_name="etsy_seo_pack.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-    with d3:
-        st.download_button(
-            label="⬇️ Download TXT",
-            data=txt_bytes,
-            file_name="etsy_seo_pack.txt",
-            mime="text/plain",
-            use_container_width=True
-        )
+        st.divider()
 
-    st.divider()
+        # Titles ranked
+        st.subheader("1) Titles (Ranked + 140-char counter + Copy)")
+        if not ranked:
+            st.warning("Add at least a Product type and/or Keywords.")
+        else:
+            for i, item in enumerate(ranked, start=1):
+                t = item["title"]
+                n = len(t)
+                score = item["score"]
+                reasons = item["reasons"]
 
-    # =========================
-    # TITLES (RANKED)
-    # =========================
-    st.subheader("1) Titles (Ranked + 140-char counter + Copy)")
-
-    if not ranked:
-        st.warning("Add at least a Product type and/or Keywords to generate better titles.")
-    else:
-        for i, item in enumerate(ranked, start=1):
-            t = item["title"]
-            n = len(t)
-            score = item["score"]
-            reasons = item["reasons"]
-
-            if i == 1:
-                st.success(f"🏆 Best Title (Score {score}) — {n}/{MAX_TITLE_LEN}")
-            else:
-                if n > MAX_TITLE_LEN:
-                    st.error(f"Title {i} (Score {score}) — {n}/{MAX_TITLE_LEN} (OVER limit)")
-                elif n >= 130:
-                    st.warning(f"Title {i} (Score {score}) — {n}/{MAX_TITLE_LEN} (close to limit)")
+                if i == 1:
+                    st.success(f"🏆 Best Title (Score {score}) — {n}/{MAX_TITLE_LEN}")
                 else:
-                    st.caption(f"Title {i} (Score {score}) — {n}/{MAX_TITLE_LEN}")
+                    if n > MAX_TITLE_LEN:
+                        st.error(f"Title {i} (Score {score}) — {n}/{MAX_TITLE_LEN} (OVER limit)")
+                    elif n >= 130:
+                        st.warning(f"Title {i} (Score {score}) — {n}/{MAX_TITLE_LEN} (close to limit)")
+                    else:
+                        st.caption(f"Title {i} (Score {score}) — {n}/{MAX_TITLE_LEN}")
 
-            c1, c2 = st.columns([8, 2])
-            with c1:
-                st.text_area(label=f"Title {i}", value=t, height=68, key=f"title_area_{i}")
-                with st.expander("Why this score?"):
-                    for r in reasons:
-                        st.write(f"• {r}")
-            with c2:
-                copy_button(t, key=f"copy_title_{i}", label="Copy")
+                c1, c2 = st.columns([8, 2])
+                with c1:
+                    st.text_area(label=f"Title {i}", value=t, height=68, key=f"title_area_{i}")
+                    with st.expander("Why this score?"):
+                        for r in reasons:
+                            st.write(f"• {r}")
+                with c2:
+                    copy_button(t, key=f"copy_title_{i}", label="Copy")
 
-            st.divider()
+                st.divider()
 
-    # =========================
-    # TAGS
-    # =========================
-    st.subheader("2) Tags (Improved + Etsy 20-char guard)")
-    st.caption("All tags auto-trimmed to fit Etsy 20-character limit (best-effort).")
+        # Tags
+        st.subheader("2) Tags (Improved + Etsy 20-char guard)")
+        st.caption("All tags auto-trimmed to fit Etsy 20-character limit (best-effort).")
 
-    tcol1, tcol2, tcol3 = st.columns(3)
-    with tcol1:
-        st.markdown("**Long-tail (guarded)**")
-        st.write(long_tail if long_tail else ["(Add more keywords for better long-tail tags)"])
-        copy_button(", ".join(long_tail), key="copy_longtail", label="Copy Long-tail")
-    with tcol2:
-        st.markdown("**Buyer Intent (guarded)**")
-        st.write(buyer_intent)
-        copy_button(", ".join(buyer_intent), key="copy_intent", label="Copy Intent")
-    with tcol3:
-        st.markdown("**Seasonality (guarded)**")
-        st.write(seasonal_tags if seasonal_tags else ["None"])
-        copy_button(", ".join(seasonal_tags), key="copy_season", label="Copy Seasonal")
+        tcol1, tcol2, tcol3 = st.columns(3)
+        with tcol1:
+            st.markdown("**Long-tail (guarded)**")
+            st.write(long_tail if long_tail else ["(Add more keywords)"])
+            copy_button(", ".join(long_tail), key="copy_longtail", label="Copy Long-tail")
+        with tcol2:
+            st.markdown("**Buyer Intent (guarded)**")
+            st.write(buyer_intent)
+            copy_button(", ".join(buyer_intent), key="copy_intent", label="Copy Intent")
+        with tcol3:
+            st.markdown("**Seasonality (guarded)**")
+            st.write(seasonal_tags if seasonal_tags else ["None"])
+            copy_button(", ".join(seasonal_tags), key="copy_season", label="Copy Seasonal")
 
-    st.markdown("**Best 13 Tags (ready to paste):**")
-    st.write(best_tags if best_tags else ["(No tags yet)"])
-    copy_button(", ".join(best_tags), key="copy_best_13", label="Copy Best 13")
+        st.markdown("**Best 13 Tags (ready to paste):**")
+        st.write(best_tags if best_tags else ["(No tags yet)"])
+        copy_button(", ".join(best_tags), key="copy_best_13", label="Copy Best 13")
 
-    # =========================
-    # DESCRIPTION
-    # =========================
-    st.subheader("3) Description (First 2 lines optimized)")
-    lines = desc.splitlines()
-    if len(lines) >= 2:
-        st.markdown("**Etsy Search Preview (First 2 lines):**")
-        st.info(f"{lines[0]}\n\n{lines[1]}")
-    st.text_area("Full Description", value=desc, height=260)
-    copy_button(desc, key="copy_desc", label="Copy Description")
+        # Description
+        st.subheader("3) Description (First 2 lines optimized)")
+        lines = desc.splitlines()
+        if len(lines) >= 2:
+            st.markdown("**Etsy Search Preview (First 2 lines):**")
+            st.info(f"{lines[0]}\n\n{lines[1]}")
+        st.text_area("Full Description", value=desc, height=260)
+        copy_button(desc, key="copy_desc", label="Copy Description")
 
-    if not pro_active:
-        st.caption(f"Free usage today: {used}/{FREE_DAILY_LIMIT} generations")
+        if not pro_active:
+            st.caption(f"Free usage today: {used}/{FREE_DAILY_LIMIT} generations")
+
+# =========================
+# TAB: Upgrade / Pricing
+# =========================
+with tab_upgrade:
+    st.title("💎 Upgrade to Pro")
+    st.write("A sell-ready workflow for Etsy sellers: faster, safer, and easier to paste into Etsy.")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("### Free")
+        st.markdown(
+            f"- {FREE_DAILY_LIMIT} generations/day\n"
+            f"- Copy titles/tags/description\n"
+            f"- Templates + basic scoring\n"
+        )
+
+    with c2:
+        st.markdown("### Pro")
+        st.markdown(
+            "- ✅ Unlimited generations\n"
+            "- ✅ Copy ALL + Download (JSON/CSV/TXT)\n"
+            "- ✅ Tag Guard (20 chars) + Best 13 auto-pack\n"
+            "- ✅ Priority support\n"
+        )
+
+    st.markdown("---")
+    st.subheader("How to Upgrade (Manual Pro by Email)")
+    st.write(
+        "1) Pay using your preferred method.\n"
+        "2) Send your email.\n"
+        "3) We activate Pro by adding your email to the Pro list."
+    )
+
+    st.markdown("**Payment methods:**")
+    st.write("- LemonSqueezy / PayPal / Vodafone Cash (choose what you use)")
+
+    st.markdown("**Send your email to activate:**")
+    st.write("- WhatsApp: +20XXXXXXXXXX")
+    st.write("- Email: support@yourdomain.com")
+
+    st.info("After activation, your email is added to pro_users.json and Pro becomes active automatically.")
 
 st.markdown("---")
 st.caption("Admin note: Add Pro emails in pro_users.json to activate Pro by email.")
