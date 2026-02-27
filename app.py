@@ -1,6 +1,8 @@
 import streamlit as st
 import json
 import re
+import csv
+import io
 from datetime import date
 from pathlib import Path
 import streamlit.components.v1 as components
@@ -600,7 +602,86 @@ if gen:
         copy_button(copy_payload, key="copy_all", label="Copy ALL ✅")
 
     st.divider()
+    # =========================
+    # DOWNLOAD (CSV / JSON)
+    # =========================
+    st.subheader("📦 Export (Download)")
 
+    export_data = {
+        "best_title": best_title,
+        "ranked_titles": ranked,  # contains title, score, reasons
+        "best_13_tags": best_tags,
+        "tags": {
+            "long_tail": long_tail,
+            "buyer_intent": buyer_intent,
+            "seasonality": seasonal_tags
+        },
+        "description": desc,
+        "meta": {
+            "product": product,
+            "material": material,
+            "style": style,
+            "color": color,
+            "audience": audience,
+            "occasion": occasion,
+            "personalization": personalization,
+            "keywords": main_kws,
+            "season": season,
+            "generated_on": date.today().isoformat()
+        }
+    }
+
+    # ---- JSON
+    json_bytes = json.dumps(export_data, ensure_ascii=False, indent=2).encode("utf-8")
+
+    # ---- CSV (simple, client-friendly)
+    csv_buffer = io.StringIO()
+    writer = csv.writer(csv_buffer)
+
+    writer.writerow(["SECTION", "KEY", "VALUE"])
+    writer.writerow(["BEST", "Best Title", best_title])
+    writer.writerow(["BEST", "Best 13 Tags", ", ".join(best_tags)])
+    writer.writerow(["BEST", "Description", desc])
+
+    writer.writerow([])
+    writer.writerow(["RANKED_TITLES", "Title", "Score"])
+    for item in ranked:
+        writer.writerow(["RANKED_TITLES", item["title"], item["score"]])
+
+    writer.writerow([])
+    writer.writerow(["TAGS_LONGTAIL", "Tag", ""])
+    for t in long_tail:
+        writer.writerow(["TAGS_LONGTAIL", t, ""])
+
+    writer.writerow([])
+    writer.writerow(["TAGS_INTENT", "Tag", ""])
+    for t in buyer_intent:
+        writer.writerow(["TAGS_INTENT", t, ""])
+
+    writer.writerow([])
+    writer.writerow(["TAGS_SEASONAL", "Tag", ""])
+    for t in seasonal_tags:
+        writer.writerow(["TAGS_SEASONAL", t, ""])
+
+    csv_bytes = csv_buffer.getvalue().encode("utf-8-sig")  # Excel-friendly
+
+    d1, d2 = st.columns(2)
+    with d1:
+        st.download_button(
+            label="⬇️ Download JSON",
+            data=json_bytes,
+            file_name="etsy_seo_pack.json",
+            mime="application/json",
+            use_container_width=True
+        )
+    with d2:
+        st.download_button(
+            label="⬇️ Download CSV",
+            data=csv_bytes,
+            file_name="etsy_seo_pack.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
     # =========================
     # Titles (Ranked)
     # =========================
