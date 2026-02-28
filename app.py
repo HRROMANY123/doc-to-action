@@ -13,21 +13,19 @@ import streamlit.components.v1 as components
 # =========================
 APP_TITLE = "Listing-Lift (Templates Pro)"
 STORE_URL = "https://listing-lift.lemonsqueezy.com/"
+SUPPORT_EMAIL = "hromany@hotmail.com"
 
 PRO_USERS_FILE = "pro_users.json"
 USAGE_FILE = "usage_log.json"
-FREE_DAILY_LIMIT = 5
 
+FREE_DAILY_LIMIT = 5  # free generations per day per email
 MAX_TITLE_LEN = 140
 ETSY_TAG_MAX_LEN = 20
 
-# ✅ Optional: direct LemonSqueezy CHECKOUT link (Share from the product)
-# Example: https://[STORE].lemonsqueezy.com/checkout/buy/[VARIANT_ID]
-# If you don't have it, keep it empty and users can open the store page.
-LEMON_CHECKOUT_URL = ""  # leave empty if not available
+# Optional: direct LemonSqueezy CHECKOUT link (your product's /checkout/buy/... link)
+# Leave empty to use STORE_URL only.
+LEMON_CHECKOUT_URL = ""
 
-# Support (EMAIL ONLY) — WhatsApp removed
-SUPPORT_EMAIL = "support@yourdomain.com"
 
 # =========================
 # ONBOARDING EXAMPLE
@@ -58,6 +56,7 @@ def reset_inputs():
         if k in st.session_state:
             del st.session_state[k]
 
+
 # =========================
 # JSON helpers
 # =========================
@@ -74,6 +73,12 @@ def _write_json(path: str, data):
     Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 def load_pro_users():
+    """
+    Supported formats:
+    1) ["a@b.com","c@d.com"]
+    2) {"emails":["a@b.com","c@d.com"]}
+    3) {"a@b.com": true, "c@d.com": true}
+    """
     data = _read_json(PRO_USERS_FILE, default={})
     if isinstance(data, dict) and "emails" in data and isinstance(data["emails"], list):
         return set([e.strip().lower() for e in data["emails"] if isinstance(e, str)])
@@ -108,6 +113,7 @@ def inc_free_used(usage: dict, email: str):
     usage.setdefault(tk, {})
     usage[tk][email] = int(usage[tk].get(email, 0)) + 1
 
+
 # =========================
 # Copy button (JS)
 # =========================
@@ -125,6 +131,7 @@ def copy_button(text: str, key: str, label="Copy"):
     """
     components.html(html, height=44)
 
+
 # =========================
 # LemonSqueezy link builder (optional: prefill email)
 # =========================
@@ -137,9 +144,11 @@ def build_lemon_link(base_url: str, email: str) -> str:
 
     parsed = urllib.parse.urlparse(base_url)
     q = dict(urllib.parse.parse_qsl(parsed.query))
+    # LemonSqueezy supports prefilled checkout[email] :contentReference[oaicite:1]{index=1}
     q["checkout[email]"] = email
     new_query = urllib.parse.urlencode(q, doseq=True)
     return urllib.parse.urlunparse(parsed._replace(query=new_query))
+
 
 # =========================
 # SEO logic (No AI)
@@ -351,7 +360,7 @@ def full_description(product: str, main_kws: list, benefit: str, features: str, 
         desc += ["", f"🚚 Shipping: {clean_kw(shipping)}"]
     if kws_line:
         desc += ["", f"🔎 Keywords: {kws_line}"]
-    desc += ["", "📩 Questions? Message me anytime — I’m happy to help!"]
+    desc += ["", "📩 Questions? Email support anytime — I’m happy to help!"]
     return "\n".join(desc)
 
 def title_score(title: str, product: str, main_kws: list, audience: str, occasion: str, season: str) -> dict:
@@ -426,18 +435,19 @@ def rank_titles(titles: list, product: str, main_kws: list, audience: str, occas
     scored.sort(key=lambda x: x["score"], reverse=True)
     return scored
 
+
 # =========================
 # UI
 # =========================
 st.set_page_config(page_title=APP_TITLE, layout="centered")
 st.title(APP_TITLE)
-st.caption(f"Upgrade link: {STORE_URL}")
+st.caption(f"Upgrade: {STORE_URL}")
 
 pro_users = load_pro_users()
 
 with st.sidebar:
     st.subheader("Account")
-    email = st.text_input("Your email (required for Free/Pro)", placeholder="you@email.com").strip().lower()
+    email = st.text_input("Your email (required)", placeholder="you@email.com").strip().lower()
     pro_active = bool(email) and (email in pro_users)
 
     if email and not is_valid_email(email):
@@ -460,12 +470,14 @@ if not email or not is_valid_email(email):
 
 usage = load_usage()
 used = get_free_used(usage, email)
+
 if (not pro_active) and used >= FREE_DAILY_LIMIT:
     st.error("Free limit reached for today. Upgrade to Pro for unlimited generations.")
     st.link_button("Open Listing-Lift Store", STORE_URL, use_container_width=True)
     st.stop()
 
 tab_gen, tab_upgrade = st.tabs(["🚀 Generator", "💎 Upgrade / Pricing"])
+
 
 # =========================
 # Generator
@@ -475,11 +487,11 @@ with tab_gen:
 
     b1, b2 = st.columns(2)
     with b1:
-        if st.button("✨ Load Example (Onboarding)", use_container_width=True):
+        if st.button("✨ Load Example", use_container_width=True):
             apply_example()
             st.rerun()
     with b2:
-        if st.button("🔄 Reset Inputs", use_container_width=True):
+        if st.button("🔄 Reset", use_container_width=True):
             reset_inputs()
             st.rerun()
 
@@ -509,7 +521,10 @@ with tab_gen:
 
     if gen:
         main_kws = split_keywords(keywords)
-        raw_titles = title_variations(product, main_kws, material, style, audience, occasion, personalization, color, season)
+
+        raw_titles = title_variations(
+            product, main_kws, material, style, audience, occasion, personalization, color, season
+        )
         ranked = rank_titles(raw_titles, product, main_kws, audience, occasion, season)
         best_title = ranked[0]["title"] if ranked else ""
 
@@ -524,15 +539,17 @@ with tab_gen:
                     best_tags.append(t)
         best_tags = best_tags[:13]
 
-        desc = full_description(product, main_kws, benefit, features, materials_desc, sizing, shipping,
-                                personalization, audience, occasion, season)
+        desc = full_description(
+            product, main_kws, benefit, features, materials_desc, sizing, shipping,
+            personalization, audience, occasion, season
+        )
 
         if not pro_active:
             inc_free_used(usage, email)
             save_usage(usage)
             used = get_free_used(usage, email)
 
-        st.success("✅ Generated (Pro-quality)")
+        st.success("✅ Generated")
 
         st.subheader("✅ Quick Apply (Copy / Download)")
         copy_payload = (
@@ -553,12 +570,23 @@ with tab_gen:
             "best_title": best_title,
             "ranked_titles": ranked,
             "best_13_tags": best_tags,
-            "tags": {"long_tail": long_tail, "buyer_intent": buyer_intent, "seasonality": seasonal_tags},
+            "tags": {
+                "long_tail": long_tail,
+                "buyer_intent": buyer_intent,
+                "seasonality": seasonal_tags
+            },
             "description": desc,
             "meta": {
-                "product": product, "material": material, "style": style, "color": color,
-                "audience": audience, "occasion": occasion, "personalization": personalization,
-                "keywords": main_kws, "season": season, "generated_on": date.today().isoformat()
+                "product": product,
+                "material": material,
+                "style": style,
+                "color": color,
+                "audience": audience,
+                "occasion": occasion,
+                "personalization": personalization,
+                "keywords": main_kws,
+                "season": season,
+                "generated_on": date.today().isoformat()
             }
         }
 
@@ -591,7 +619,7 @@ with tab_gen:
 
         st.divider()
 
-        st.subheader("1) Titles (Ranked + 140-char counter + Copy)")
+        st.subheader("Titles (Ranked)")
         for i, item in enumerate(ranked, start=1):
             t = item["title"]
             n = len(t)
@@ -618,7 +646,7 @@ with tab_gen:
 
             st.divider()
 
-        st.subheader("2) Tags (Improved + Etsy 20-char guard)")
+        st.subheader("Tags (Etsy 20-char guard)")
         tcol1, tcol2, tcol3 = st.columns(3)
         with tcol1:
             st.markdown("**Long-tail**")
@@ -637,10 +665,10 @@ with tab_gen:
         st.write(best_tags)
         copy_button(", ".join(best_tags), key="copy_best_13", label="Copy Best 13")
 
-        st.subheader("3) Description (First 2 lines optimized)")
+        st.subheader("Description")
         lines = desc.splitlines()
         if len(lines) >= 2:
-            st.markdown("**Etsy Search Preview (First 2 lines):**")
+            st.markdown("**Etsy Search Preview (first 2 lines):**")
             st.info(f"{lines[0]}\n\n{lines[1]}")
         st.text_area("Full Description", value=desc, height=260)
         copy_button(desc, key="copy_desc", label="Copy Description")
@@ -648,8 +676,9 @@ with tab_gen:
         if not pro_active:
             st.caption(f"Free usage today: {used}/{FREE_DAILY_LIMIT} generations")
 
+
 # =========================
-# Upgrade / Pricing + LemonSqueezy link
+# Upgrade / Pricing
 # =========================
 with tab_upgrade:
     st.title("💎 Upgrade to Pro (Listing-Lift)")
@@ -658,29 +687,30 @@ with tab_upgrade:
     st.markdown("### Open the Store")
     st.link_button("🛒 Open Listing-Lift Store", STORE_URL, use_container_width=True)
 
+    st.markdown("---")
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("### Free")
         st.markdown(f"- {FREE_DAILY_LIMIT} generations/day\n- Copy titles/tags/description\n- Basic templates")
     with c2:
         st.markdown("### Pro")
-        st.markdown("- ✅ Unlimited generations\n- ✅ Copy ALL + Download (JSON/CSV/TXT)\n- ✅ Tag Guard (20 chars) + Best 13\n- ✅ Priority support (email)")
+        st.markdown("- ✅ Unlimited generations\n- ✅ Copy ALL + Download (JSON/CSV/TXT)\n- ✅ Best 13 tags + 20-char guard\n- ✅ Support by email")
 
     st.markdown("---")
-    st.subheader("✅ Optional: Direct Checkout Link")
+    st.subheader("Optional: Direct Checkout Button")
     if LEMON_CHECKOUT_URL:
         pay_link = build_lemon_link(LEMON_CHECKOUT_URL, email)
-        st.link_button("💳 Pay Now (LemonSqueezy Checkout)", pay_link, use_container_width=True)
+        st.link_button("💳 Pay Now (Checkout)", pay_link, use_container_width=True)
+        st.caption("Email will be pre-filled automatically on the checkout.")
     else:
-        st.info("Direct checkout link not set. Users can buy from the store page above.")
+        st.info("Direct checkout link not set. Customers can buy from the store page above.")
 
-    st.subheader("✅ Activation (by Email)")
+    st.markdown("---")
+    st.subheader("Activation (by Email)")
     st.write("After payment, send the SAME email you used at checkout. We will activate Pro by your email.")
     st.markdown("**Support email:**")
     st.write(SUPPORT_EMAIL)
     copy_button(SUPPORT_EMAIL, key="copy_support_email", label="Copy Support Email")
-
-    st.info("Admin note: Add the customer email to pro_users.json → Pro becomes active instantly.")
 
 st.markdown("---")
 st.caption("Listing-Lift • Pro activation by email (no WhatsApp).")
