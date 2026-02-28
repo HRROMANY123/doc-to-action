@@ -144,7 +144,6 @@ def build_lemon_link(base_url: str, email: str) -> str:
 
     parsed = urllib.parse.urlparse(base_url)
     q = dict(urllib.parse.parse_qsl(parsed.query))
-    # LemonSqueezy supports prefilled checkout[email] :contentReference[oaicite:1]{index=1}
     q["checkout[email]"] = email
     new_query = urllib.parse.urlencode(q, doseq=True)
     return urllib.parse.urlunparse(parsed._replace(query=new_query))
@@ -444,14 +443,17 @@ st.title(APP_TITLE)
 st.caption(f"Upgrade: {STORE_URL}")
 
 pro_users = load_pro_users()
+usage = load_usage()
 
 with st.sidebar:
     st.subheader("Account")
     email = st.text_input("Your email (required)", placeholder="you@email.com").strip().lower()
-    pro_active = bool(email) and (email in pro_users)
+    email_ok = bool(email) and is_valid_email(email)
 
-    if email and not is_valid_email(email):
+    if email and not email_ok:
         st.warning("Please enter a valid email.")
+
+    pro_active = email_ok and (email in pro_users)
 
     st.markdown("---")
     st.subheader("Plan")
@@ -464,17 +466,9 @@ with st.sidebar:
         st.write("Upgrade to Pro via LemonSqueezy (manual activation by email).")
         st.link_button("Open Listing-Lift Store", STORE_URL, use_container_width=True)
 
-if not email or not is_valid_email(email):
-    st.warning("Enter a valid email in the sidebar to use the generator.")
-    st.stop()
-
-usage = load_usage()
-used = get_free_used(usage, email)
-
-if (not pro_active) and used >= FREE_DAILY_LIMIT:
-    st.error("Free limit reached for today. Upgrade to Pro for unlimited generations.")
-    st.link_button("Open Listing-Lift Store", STORE_URL, use_container_width=True)
-    st.stop()
+# ✅ NEW BEHAVIOR: do NOT stop the app if email is missing.
+if not email_ok:
+    st.info("Enter your email in the sidebar to enable Generate (Free/Pro). You can still view the tool.")
 
 tab_gen, tab_upgrade = st.tabs(["🚀 Generator", "💎 Upgrade / Pricing"])
 
@@ -520,6 +514,21 @@ with tab_gen:
     gen = st.button("🚀 Generate SEO Pack", use_container_width=True)
 
     if gen:
+        # ✅ Require email only when generating
+        if not email_ok:
+            st.error("Please enter a valid email in the sidebar first.")
+            st.stop()
+
+        # ✅ Enforce free limit only when generating
+        pro_active = email in pro_users  # recompute now that email_ok True
+
+        if not pro_active:
+            used = get_free_used(usage, email)
+            if used >= FREE_DAILY_LIMIT:
+                st.error("Free limit reached for today. Upgrade to Pro for unlimited generations.")
+                st.link_button("Open Listing-Lift Store", STORE_URL, use_container_width=True)
+                st.stop()
+
         main_kws = split_keywords(keywords)
 
         raw_titles = title_variations(
@@ -548,6 +557,8 @@ with tab_gen:
             inc_free_used(usage, email)
             save_usage(usage)
             used = get_free_used(usage, email)
+        else:
+            used = None
 
         st.success("✅ Generated")
 
@@ -673,7 +684,7 @@ with tab_gen:
         st.text_area("Full Description", value=desc, height=260)
         copy_button(desc, key="copy_desc", label="Copy Description")
 
-        if not pro_active:
+        if not pro_active and used is not None:
             st.caption(f"Free usage today: {used}/{FREE_DAILY_LIMIT} generations")
 
 
@@ -699,9 +710,10 @@ with tab_upgrade:
     st.markdown("---")
     st.subheader("Optional: Direct Checkout Button")
     if LEMON_CHECKOUT_URL:
-        pay_link = build_lemon_link(LEMON_CHECKOUT_URL, email)
+        email_for_prefill = email if (bool(email) and is_valid_email(email)) else ""
+        pay_link = build_lemon_link(LEMON_CHECKOUT_URL, email_for_prefill)
         st.link_button("💳 Pay Now (Checkout)", pay_link, use_container_width=True)
-        st.caption("Email will be pre-filled automatically on the checkout.")
+        st.caption("If you typed your email, it will be pre-filled on checkout.")
     else:
         st.info("Direct checkout link not set. Customers can buy from the store page above.")
 
